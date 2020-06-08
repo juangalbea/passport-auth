@@ -14,6 +14,7 @@ const bcrypt = require("bcrypt");
 const passport = require("passport");
 const LocalStrategy = require("passport-local").Strategy;
 const flash = require("connect-flash");
+const SlackStrategy = require("passport-slack").Strategy;
 
 const app_name = require('./package.json').name;
 const debug = require('debug')(`${app_name}:${path.basename(__filename).split('.')[0]}`);
@@ -46,7 +47,36 @@ passport.deserializeUser((id, cb) => {
   });
 });
 
+passport.use(new SlackStrategy({
+  clientID: process.env.SLACK_CLIENT_ID,
+  clientSecret: process.env.SLACK_CLIENT_SECRET
+}, (accessToken, refreshToken, profile, done) => {
+  User.findOne({
+          slackID: profile.id
+      })
+      .then(user => {
+          if (user) {
+              User.findByIdAndUpdate(user._id,{
+                  username:profile.user.name},{new:true}).then(user => {
+                      return done(null, user);
+                  })
+          }
 
+          const newUser = new User({
+              username: profile.user.name,
+              slackID: profile.id
+          });
+
+          newUser.save()
+              .then(user => {
+                  done(null, newUser);
+              })
+      })
+      .catch(error => {
+          done(error)
+      })
+
+}));
 
 app.use(flash());
 passport.use(new LocalStrategy({
@@ -68,6 +98,7 @@ passport.use(new LocalStrategy({
 }));
 
 app.use(passport.initialize());
+app.use(require('body-parser').urlencoded({ extended: true }));
 app.use(passport.session());
 
 const authRoutes = require("./routes/auth-routes");
